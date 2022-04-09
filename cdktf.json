@@ -3,8 +3,9 @@
   "app": "npx ts-node main.ts",
   "projectId": "360df66e-32f9-4fab-8d6c-655151389e07",
   "terraformProviders": [
-    "aws@~> 3.0",
-    "hashicorp/random@ ~> 3.1.0"
+    "aws@ ~> 3.0",
+    "hashicorp/random@ ~> 3.1.0",
+    "time@ ~> 0.7.2"
   ],
   "terraformModules": [
     "terraform-aws-modules/vpc/aws@ ~> 3.2.0",
