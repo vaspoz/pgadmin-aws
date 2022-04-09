@@ -1,4 +1,6 @@
-import { Construct } from "constructs";
+import {
+  Construct
+} from "constructs";
 import {
   Fn,
 } from "cdktf";
@@ -13,95 +15,84 @@ import {
   LbListenerRule,
   LbTargetGroup,
 } from "@cdktf/provider-aws/lib/elb";
-import { SecurityGroup } from "@cdktf/provider-aws/lib/vpc";
-import { Resource } from "@cdktf/provider-null";
-import { Vpc } from "../.gen/modules/terraform-aws-modules/aws/vpc";
-import { Sleep } from "../.gen/providers/time";
+import {
+  SecurityGroup
+} from "@cdktf/provider-aws/lib/vpc";
+import {
+  Resource
+} from "@cdktf/provider-null";
+import {
+  Vpc
+} from "../.gen/modules/terraform-aws-modules/aws/vpc";
 
-const tags = {
-  iac: "terraform",
-  tool: "cdktf",
-  owner: "basilp"
-};
 
 export class PgadminAlb extends Resource {
-  lb: Lb;
-  lbl: LbListener;
-  vpc: Vpc;
-  cluster: EcsCluster;
 
-  constructor(scope: Construct, name: string, vpc: Vpc, cluster: EcsCluster) {
-    super(scope, name);
+  private readonly lb: Lb;
+  private readonly lbl: LbListener;
+  private readonly vpc: Vpc;
+  private readonly cluster: EcsCluster;
+  private readonly tags: {};
+
+  constructor(scope: Construct, id: string, vpc: Vpc, cluster: EcsCluster, tags: {}) {
+    super(scope, id);
     this.vpc = vpc;
     this.cluster = cluster;
+    this.tags = tags;
 
-    const lbSecurityGroup = new SecurityGroup(this, `lb-security-group`, {
+    const lbSecurityGroup = new SecurityGroup(this, "lb-security-group", {
       vpcId: Fn.tostring(vpc.vpcIdOutput),
       tags,
-      ingress: [
-        // allow HTTP traffic from everywhere
-        {
-          protocol: "TCP",
-          fromPort: 80,
-          toPort: 80,
-          cidrBlocks: ["0.0.0.0/0"],
-          ipv6CidrBlocks: ["::/0"],
-        },
-      ],
-      egress: [
-        // allow all traffic to every destination
-        {
-          fromPort: 0,
-          toPort: 0,
-          protocol: "-1",
-          cidrBlocks: ["0.0.0.0/0"],
-          ipv6CidrBlocks: ["::/0"],
-        },
-      ],
+      ingress: [{
+        protocol: "TCP",
+        fromPort: 80,
+        toPort: 80,
+        cidrBlocks: ["0.0.0.0/0"],
+        ipv6CidrBlocks: ["::/0"]
+      }],
+      egress: [{
+        fromPort: 0,
+        toPort: 0,
+        protocol: "-1",
+        cidrBlocks: ["0.0.0.0/0"],
+        ipv6CidrBlocks: ["::/0"]
+      }]
     });
-    this.lb = new Lb(this, `lb`, {
-      name,
+    this.lb = new Lb(this, "lb", {
+      name: id,
       tags,
       // we want this to be our public load balancer so that users can access it
       internal: false,
       loadBalancerType: "application",
       securityGroups: [lbSecurityGroup.id],
+      // subnets: [vpc.publicSubnetsOutput]
     });
 
     // This is necessary due to a shortcoming in our token system to be adressed in
-    // https://github.com/hashicorp/terraform-cdk/issues/651
     this.lb.addOverride("subnets", vpc.publicSubnetsOutput);
 
-    this.lbl = new LbListener(this, `lb-listener`, {
+    this.lbl = new LbListener(this, "lb-listener", {
       loadBalancerArn: this.lb.arn,
       port: 80,
       protocol: "HTTP",
       tags,
-      defaultAction: [
-        // We define a fixed 404 message, just in case
-        {
-          type: "fixed-response",
-          fixedResponse: {
-            contentType: "text/plain",
-            statusCode: "404",
-            messageBody: "Could not find the resource you are looking for",
-          },
-        },
-      ],
+      defaultAction: [{
+        type: "fixed-response",
+        fixedResponse: {
+          contentType: "text/plain",
+          statusCode: "404",
+          messageBody: "Not found",
+        }
+      }]
     });
   }
 
-  exposeService(
-    name: string,
-    task: EcsTaskDefinition,
-    serviceSecurityGroup: SecurityGroup,
-    path: string
-  ) {
+  exposeService(serviceName: string, task: EcsTaskDefinition, serviceSecurityGroup: SecurityGroup, path: string) {
     // Define Load Balancer target group with a health check on /ready
-    const targetGroup = new LbTargetGroup(this, `target-group`, {
+    const targetGroup = new LbTargetGroup(this, "target-group", {
       dependsOn: [this.lbl],
-      tags,
-      name: `${name}-target-group`,
+      tags: this.tags,
+      name: `${serviceName}-target-group`,
       port: 80,
       protocol: "HTTP",
       targetType: "ip",
@@ -116,35 +107,28 @@ export class PgadminAlb extends Resource {
       slowStart: 30
     });
 
-    const sleep3m = new Sleep(this, 'sleep30', {
-      createDuration: '3m'
-    });
-
     // Makes the listener forward requests from subpath to the target group
-    new LbListenerRule(this, `rule`, {
+    new LbListenerRule(this, "simple-rule", {
       listenerArn: this.lbl.arn,
       priority: 100,
-      tags,
-      action: [
-        {
-          type: "forward",
-          targetGroupArn: targetGroup.arn,
-        },
-      ],
-
-      condition: [
-        {
-          pathPattern: { values: [`${path}*`] },
-        },
-      ],
+      tags: this.tags,
+      action: [{
+        type: "forward",
+        targetGroupArn: targetGroup.arn,
+      }],
+      condition: [{
+        pathPattern: {
+          values: [`${path}*`]
+        }
+      }]
     });
 
     // Ensure the task is running and wired to the target group, within the right security group
-    new EcsService(this, `service`, {
-      dependsOn: [this.lbl, sleep3m],
+    new EcsService(this, "service", {
+      dependsOn: [this.lbl],
       waitForSteadyState: true,
-      tags,
-      name,
+      tags: this.tags,
+      name: serviceName,
       launchType: "FARGATE",
       cluster: this.cluster.id,
       desiredCount: 1,
@@ -154,13 +138,11 @@ export class PgadminAlb extends Resource {
         assignPublicIp: true,
         securityGroups: [serviceSecurityGroup.id],
       },
-      loadBalancer: [
-        {
-          containerPort: 80,
-          containerName: name,
-          targetGroupArn: targetGroup.arn,
-        },
-      ],
+      loadBalancer: [{
+        containerPort: 80,
+        containerName: serviceName,
+        targetGroupArn: targetGroup.arn,
+      }]
     });
   }
 }

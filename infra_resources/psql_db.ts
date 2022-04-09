@@ -1,31 +1,34 @@
-import { Construct } from "constructs";
+import {
+  Construct
+} from "constructs";
 import {
   Fn
 } from "cdktf";
-import { SecurityGroup } from "@cdktf/provider-aws/lib/vpc";
-import { Resource } from "@cdktf/provider-null";
-import { Vpc } from "../.gen/modules/terraform-aws-modules/aws/vpc";
-import { Rds } from "../.gen/modules/terraform-aws-modules/aws/rds";
-import { Password } from "../.gen/providers/random";
+import {
+  SecurityGroup
+} from "@cdktf/provider-aws/lib/vpc";
+import {
+  Resource
+} from "@cdktf/provider-null";
+import {
+  Vpc
+} from "../.gen/modules/terraform-aws-modules/aws/vpc";
+import {
+  Rds
+} from "../.gen/modules/terraform-aws-modules/aws/rds";
+import {
+  Password
+} from "../.gen/providers/random";
 
-const tags = {
-  iac: "terraform",
-  tool: "cdktf",
-  owner: "basilp"
-};
 
 export class PostgresDB extends Resource {
+
   public instance: Rds;
 
-  constructor(
-    scope: Construct,
-    id: string,
-    vpc: Vpc,
-    serviceSecurityGroup: SecurityGroup
-  ) {
+  constructor(scope: Construct, id: string, vpc: Vpc, serviceSecurityGroup: SecurityGroup, tags: {}) {
     super(scope, id);
 
-    new Password(this, `db-password`, {
+    new Password(this, "db-password", {
       length: 16,
       special: false,
     });
@@ -34,15 +37,13 @@ export class PostgresDB extends Resource {
 
     const dbSecurityGroup = new SecurityGroup(this, "db-security-group", {
       vpcId: Fn.tostring(vpc.vpcIdOutput),
-      ingress: [
-        {
-          fromPort: dbPort,
-          toPort: dbPort,
-          protocol: "TCP",
-          securityGroups: [serviceSecurityGroup.id],
-        },
-      ],
-      tags,
+      ingress: [{
+        fromPort: dbPort,
+        toPort: dbPort,
+        protocol: "TCP",
+        securityGroups: [serviceSecurityGroup.id],
+      }],
+      tags
     });
 
     const db = new Rds(this, "db", {
@@ -71,7 +72,7 @@ export class PostgresDB extends Resource {
       // https://github.com/hashicorp/terraform-cdk/issues/651
       subnetIds: vpc.databaseSubnetsOutput as unknown as any,
       vpcSecurityGroupIds: [dbSecurityGroup.id],
-      tags,
+      tags
     });
 
     this.instance = db;
