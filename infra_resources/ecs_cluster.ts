@@ -7,14 +7,19 @@ import {
 import { IamRole } from "@cdktf/provider-aws/lib/iam";
 import { CloudwatchLogGroup } from "@cdktf/provider-aws/lib/cloudwatch";
 import { Resource } from "@cdktf/provider-null";
+import { DataAwsEcrAuthorizationToken, EcrRepository } from "@cdktf/provider-aws/lib/ecr";
+import * as path from "path";
+// import { TerraformAsset } from "cdktf";
 
 
 export class PgadminEcsCluster extends Resource {
 
   public cluster: EcsCluster;
+  public image: Resource;
 
   private readonly tags: {};
   private readonly region: string;
+  private readonly imageTag: string;
 
   constructor(scope: Construct, id: string, tags: {}, region: string) {
     super(scope, id);
@@ -29,13 +34,78 @@ export class PgadminEcsCluster extends Resource {
       capacityProviders: ["FARGATE"],
     });
 
+    // Create ECR
+    const repo = new EcrRepository(this, "ecr", {
+      name: `${id}-repo`,
+      tags
+    });
+    // get the authorization for ECR
+    const auth = new DataAwsEcrAuthorizationToken(this, "auth", {
+      dependsOn: [repo],
+      registryId: repo.registryId
+    });
+    // const asset = new TerraformAsset(this, "pgadmin-docker", {
+    //   path: "."
+    // });
+
+    this.imageTag = `${repo.repositoryUrl}:1.0.0`;
+    this.image = new Resource(this, "pgadmin-image");
+    this.image.addOverride("provisioner.local-exec.command",
+      `
+        docker logout &&
+        docker login -u ${auth.userName} -p ${auth.password} ${auth.proxyEndpoint} &&
+        docker build -t ${this.imageTag} ${path.resolve(__dirname)} &&
+        docker push ${this.imageTag}
+      `
+    );
+
     this.cluster = cluster;
     this.tags = tags;
     this.region = region;
   }
 
-  public runDockerImage(name: string, image: string, env: Record<string, string | undefined>) {
+  public runDockerImage = (name: string, env: Record<string, string | undefined>) => {
 
+    const executionRole = new IamRole(this, `execution-role`, {
+      name: `${name}-execution-role`,
+      tags: this.tags,
+      inlinePolicy: [
+        {
+          name: "allow-ecr-pull",
+          policy: JSON.stringify({
+            Version: "2012-10-17",
+            Statement: [
+              {
+                Effect: "Allow",
+                Action: [
+                  "ecr:GetAuthorizationToken",
+                  "ecr:BatchCheckLayerAvailability",
+                  "ecr:GetDownloadUrlForLayer",
+                  "ecr:BatchGetImage",
+                  "logs:CreateLogStream",
+                  "logs:PutLogEvents",
+                ],
+                Resource: "*",
+              },
+            ],
+          }),
+        },
+      ],
+      // this role shall only be used by an ECS task
+      assumeRolePolicy: JSON.stringify({
+        Version: "2012-10-17",
+        Statement: [
+          {
+            Action: "sts:AssumeRole",
+            Effect: "Allow",
+            Sid: "",
+            Principal: {
+              Service: "ecs-tasks.amazonaws.com",
+            },
+          },
+        ],
+      }),
+    });
     // Role that allows us to push logs
     const taskRole = new IamRole(this, "task-role", {
       name: `${name}-task-role`,
@@ -84,15 +154,14 @@ export class PgadminEcsCluster extends Resource {
       memory: "512",
       requiresCompatibilities: ["FARGATE", "EC2"],
       networkMode: "awsvpc",
-      executionRoleArn: taskRole.arn,
+      executionRoleArn: executionRole.arn,
       taskRoleArn: taskRole.arn,
       containerDefinitions: JSON.stringify([
         {
           name,
-          image,
+          image: this.imageTag,
           cpu: 256,
           memory: 512,
-          command: ["echo", "Hello From ECS"],
           environment: Object.entries(env).map(([name, value]) => ({
             name,
             value,

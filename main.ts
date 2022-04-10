@@ -30,6 +30,7 @@ import {
 import {
   MainVpc
 } from "./infra_resources/main_vpc";
+import { LocalProvider } from "@cdktf/provider-local";
 
 
 const REGION = "eu-central-1";
@@ -50,11 +51,10 @@ class MyStack extends TerraformStack {
     });
     new NullProvider(this, "null");
     new RandomProvider(this, "random");
+    new LocalProvider(this, "local");
 
     const vpc = new MainVpc(this, 'PsqlVpc', tags, REGION).vpc;
 
-    const cluster = new PgadminEcsCluster(this, "cluster", tags, REGION);
-    const loadBalancer = new PgadminAlb(this, "loadbalancer", vpc, cluster.cluster, tags);
     const serviceSecurityGroup = new SecurityGroup(this, "service-security-group", {
       vpcId: Fn.tostring(vpc.vpcIdOutput),
       tags,
@@ -73,11 +73,18 @@ class MyStack extends TerraformStack {
       }]
     });
 
-    new PostgresDB(this, "dockerintegration", vpc, serviceSecurityGroup, tags);
+    // First, create PostgresDB
+    new PostgresDB(this, "psql", vpc, serviceSecurityGroup, tags);
 
-    const task = cluster.runDockerImage("pgadmin", 'dpage/pgadmin4', {
+    const cluster = new PgadminEcsCluster(this, "cluster", tags, REGION);
+    const loadBalancer = new PgadminAlb(this, "loadbalancer", vpc, cluster.cluster, tags);
+
+    
+
+    const task = cluster.runDockerImage("pgadmin", {
       PGADMIN_DEFAULT_EMAIL: "vaspoz@mail.ru",
-      PGADMIN_DEFAULT_PASSWORD: 'admin'
+      PGADMIN_DEFAULT_PASSWORD: "admin",
+      PGADMIN_CONFIG_ENHANCED_COOKIE_PROTECTION: "False"
     });
 
     loadBalancer.exposeService("pgadmin", task, serviceSecurityGroup, "/");

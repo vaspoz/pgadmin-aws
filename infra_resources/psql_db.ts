@@ -19,11 +19,12 @@ import {
 import {
   Password
 } from "../.gen/providers/random";
+// import { File } from "@cdktf/provider-local";
 
 
 export class PostgresDB extends Resource {
 
-  public instance: Rds;
+  public db: Rds;
 
   constructor(scope: Construct, id: string, vpc: Vpc, serviceSecurityGroup: SecurityGroup, tags: {}) {
     super(scope, id);
@@ -46,7 +47,7 @@ export class PostgresDB extends Resource {
       tags
     });
 
-    const db = new Rds(this, "db", {
+    this.db = new Rds(this, "db", {
       identifier: `${id}-db`,
 
       engine: "postgres",
@@ -75,6 +76,12 @@ export class PostgresDB extends Resource {
       tags
     });
 
-    this.instance = db;
+    // new File(this, "psql-servers", {
+    //   filename: "./infra_resources/servers.json",
+    //   content: JSON.stringify({
+
+    //   })
+    // })
+
   }
 }

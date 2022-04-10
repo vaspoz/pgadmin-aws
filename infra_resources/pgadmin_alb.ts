@@ -2,7 +2,7 @@ import {
   Construct
 } from "constructs";
 import {
-  Fn,
+  Fn, TerraformOutput,
 } from "cdktf";
 import {
   EcsCluster,
@@ -64,12 +64,14 @@ export class PgadminAlb extends Resource {
       // we want this to be our public load balancer so that users can access it
       internal: false,
       loadBalancerType: "application",
-      securityGroups: [lbSecurityGroup.id],
-      // subnets: [vpc.publicSubnetsOutput]
+      securityGroups: [lbSecurityGroup.id]
     });
-
     // This is necessary due to a shortcoming in our token system to be adressed in
     this.lb.addOverride("subnets", vpc.publicSubnetsOutput);
+
+    new TerraformOutput(this, "AlbUrl", {
+      value: this.lb.dnsName
+    });
 
     this.lbl = new LbListener(this, "lb-listener", {
       loadBalancerArn: this.lb.arn,
@@ -87,7 +89,7 @@ export class PgadminAlb extends Resource {
     });
   }
 
-  exposeService(serviceName: string, task: EcsTaskDefinition, serviceSecurityGroup: SecurityGroup, path: string) {
+  public exposeService = (serviceName: string, task: EcsTaskDefinition, serviceSecurityGroup: SecurityGroup, path: string) => {
     // Define Load Balancer target group with a health check on /ready
     const targetGroup = new LbTargetGroup(this, "target-group", {
       dependsOn: [this.lbl],
@@ -97,6 +99,9 @@ export class PgadminAlb extends Resource {
       protocol: "HTTP",
       targetType: "ip",
       vpcId: Fn.tostring(this.vpc.vpcIdOutput),
+      stickiness: {
+        type: "lb_cookie"
+      },
       healthCheck: {
         enabled: true,
         path: "/",
@@ -131,7 +136,7 @@ export class PgadminAlb extends Resource {
       name: serviceName,
       launchType: "FARGATE",
       cluster: this.cluster.id,
-      desiredCount: 1,
+      desiredCount: 3,
       taskDefinition: task.arn,
       networkConfiguration: {
         subnets: Fn.tolist(this.vpc.privateSubnetsOutput),
