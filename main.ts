@@ -7,17 +7,8 @@ import {
   TerraformStack,
 } from "cdktf";
 import {
-  AwsProvider
-} from "@cdktf/provider-aws";
-import {
   SecurityGroup
 } from "@cdktf/provider-aws/lib/vpc";
-import {
-  NullProvider
-} from "@cdktf/provider-null";
-import {
-  RandomProvider
-} from "./.gen/providers/random";
 import {
   PostgresDB
 } from "./infra_resources/psql_db";
@@ -30,10 +21,7 @@ import {
 import {
   MainVpc
 } from "./infra_resources/main_vpc";
-import { LocalProvider } from "@cdktf/provider-local";
-
-
-const REGION = "eu-central-1";
+import { defineProviders } from "./infra_resources/providers";
 
 const tags = {
   iac: "terraform",
@@ -41,19 +29,13 @@ const tags = {
   owner: "basilp"
 };
 
-class MyStack extends TerraformStack {
+class PgadminStack extends TerraformStack {
   constructor(scope: Construct, name: string) {
     super(scope, name);
 
-    new AwsProvider(this, "aws", {
-      region: REGION,
-      profile: "cdk"
-    });
-    new NullProvider(this, "null");
-    new RandomProvider(this, "random");
-    new LocalProvider(this, "local");
+    defineProviders(this);
 
-    const vpc = new MainVpc(this, 'PsqlVpc', tags, REGION).vpc;
+    const vpc = new MainVpc(this, 'PsqlVpc', tags).vpc;
 
     const serviceSecurityGroup = new SecurityGroup(this, "service-security-group", {
       vpcId: Fn.tostring(vpc.vpcIdOutput),
@@ -74,12 +56,11 @@ class MyStack extends TerraformStack {
     });
 
     // First, create PostgresDB
-    new PostgresDB(this, "psql", vpc, serviceSecurityGroup, tags);
+    const db = new PostgresDB(this, "psql", vpc, serviceSecurityGroup, tags);
 
-    const cluster = new PgadminEcsCluster(this, "cluster", tags, REGION);
+    const cluster = new PgadminEcsCluster(this, "cluster", tags, db.fileList);
+
     const loadBalancer = new PgadminAlb(this, "loadbalancer", vpc, cluster.cluster, tags);
-
-    
 
     const task = cluster.runDockerImage("pgadmin", {
       PGADMIN_DEFAULT_EMAIL: "vaspoz@mail.ru",
@@ -93,5 +74,5 @@ class MyStack extends TerraformStack {
 }
 
 const app = new App();
-new MyStack(app, "pgadmin-aws");
+new PgadminStack(app, "pgadmin-aws");
 app.synth();

@@ -19,12 +19,16 @@ import {
 import {
   Password
 } from "../.gen/providers/random";
-// import { File } from "@cdktf/provider-local";
+import {
+  File
+} from "@cdktf/provider-local";
+import path = require("path");
 
 
 export class PostgresDB extends Resource {
 
   public db: Rds;
+  public fileList: File[] = [];
 
   constructor(scope: Construct, id: string, vpc: Vpc, serviceSecurityGroup: SecurityGroup, tags: {}) {
     super(scope, id);
@@ -76,12 +80,31 @@ export class PostgresDB extends Resource {
       tags
     });
 
-    // new File(this, "psql-servers", {
-    //   filename: "./infra_resources/servers.json",
-    //   content: JSON.stringify({
+    const serversFile = new File(this, "psql-servers", {
+      filename: path.resolve(__dirname, "./servers.json"),
+      content: JSON.stringify({
+        "Servers": {
+          "1": {
+            "Name": "postgresql",
+            "Group": "Servers",
+            "Host": this.db.dbInstanceAddressOutput,
+            "Port": parseInt(this.db.port),
+            "MaintenanceDB": "postgres",
+            "Username": this.db.username,
+            "SSLMode": "prefer",
+            "PassFile": "/pgpassfile"
+          }
+        }
+      })
+    });
+    const pgpassFile = new File(this, "psql-passfile", {
+      filename: path.resolve(__dirname, "./pgpassfile"),
+      content: `${this.db.dbInstanceAddressOutput}:${this.db.port}:postgres:${this.db.username}:${this.db.password}`,
+      // content: `*:*:*:${this.db.username}:${this.db.password}`,
+      filePermission: "600"
+    });
 
-    //   })
-    // })
+    this.fileList.push(serversFile, pgpassFile);
 
   }
 }

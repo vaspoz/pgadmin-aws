@@ -1,7 +1,10 @@
 FROM dpage/pgadmin4
 
-RUN mkdir -m 700 /var/lib/pgadmin/storage && \
-    mkdir -m 700 /var/lib/pgadmin/storage/pgadmin4_pgadmin.org
+ENV PGPASSFILE=/pgadmin4/pgpassfile
+
+USER root 
 
 COPY servers.json /pgadmin4/servers.json
-COPY pgpassfile /var/lib/pgadmin/storage/pgadmin4_pgadmin.org/pgpassfile
+
+COPY pgpassfile /pgadmin4/pgpassfile 
+RUN chmod 600 /pgadmin4/pgpassfile

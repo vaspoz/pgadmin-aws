@@ -9,7 +9,7 @@ import { CloudwatchLogGroup } from "@cdktf/provider-aws/lib/cloudwatch";
 import { Resource } from "@cdktf/provider-null";
 import { DataAwsEcrAuthorizationToken, EcrRepository } from "@cdktf/provider-aws/lib/ecr";
 import * as path from "path";
-// import { TerraformAsset } from "cdktf";
+import { ITerraformDependable } from "cdktf";
 
 
 export class PgadminEcsCluster extends Resource {
@@ -18,10 +18,11 @@ export class PgadminEcsCluster extends Resource {
   public image: Resource;
 
   private readonly tags: {};
-  private readonly region: string;
   private readonly imageTag: string;
 
-  constructor(scope: Construct, id: string, tags: {}, region: string) {
+  private region = "eu-central-1";
+
+  constructor(scope: Construct, id: string, tags: {}, dependsOn: ITerraformDependable[]) {
     super(scope, id);
 
     const cluster = new EcsCluster(this, `ecs-${id}`, {
@@ -44,12 +45,11 @@ export class PgadminEcsCluster extends Resource {
       dependsOn: [repo],
       registryId: repo.registryId
     });
-    // const asset = new TerraformAsset(this, "pgadmin-docker", {
-    //   path: "."
-    // });
 
     this.imageTag = `${repo.repositoryUrl}:1.0.0`;
-    this.image = new Resource(this, "pgadmin-image");
+    this.image = new Resource(this, "pgadmin-image", {
+      dependsOn: dependsOn
+    });
     this.image.addOverride("provisioner.local-exec.command",
       `
         docker logout &&
@@ -61,7 +61,6 @@ export class PgadminEcsCluster extends Resource {
 
     this.cluster = cluster;
     this.tags = tags;
-    this.region = region;
   }
 
   public runDockerImage = (name: string, env: Record<string, string | undefined>) => {
@@ -149,6 +148,7 @@ export class PgadminEcsCluster extends Resource {
 
     // Creates a task that runs the docker container
     const task = new EcsTaskDefinition(this, "pgadmin-task", {
+      dependsOn: [this.image],
       tags: this.tags,
       cpu: "256",
       memory: "512",
