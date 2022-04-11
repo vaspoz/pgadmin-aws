@@ -9,3 +9,5 @@ cdktf.log
 tsconfig.tsbuildinfo
 !jest.config.js
 !setup.js
+infra_resources/servers.json
+infra_resources/pgpassfile
