@@ -6,8 +6,8 @@ import { Construct } from "constructs";
 import { TlsProvider } from "@cdktf/provider-tls";
 import { TimeProvider } from "../.gen/providers/time";
 
-const REGION = "eu-central-1";
-const PROFILE = "cdk";
+const REGION = process.env["REGION"] || "eu-central-1";
+const PROFILE = process.env["AWSPROFILE"] || "default";
 
 export const defineProviders = (that: Construct) => {
 

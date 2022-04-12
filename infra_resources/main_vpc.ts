@@ -9,7 +9,7 @@ import {
 } from "@cdktf/provider-null";
 
 
-const REGION = "eu-central-1";
+const REGION = process.env["REGION"] || "eu-central-1";
 
 export class MainVpc extends Resource {
 

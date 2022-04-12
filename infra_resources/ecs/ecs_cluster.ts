@@ -26,7 +26,7 @@ export class PgadminEcsCluster extends Resource {
   public cluster: EcsCluster;
   public task: EcsTaskDefinition;
 
-  private region = "eu-central-1";
+  private region = process.env["REGION"] || "eu-central-1";
 
   constructor(scope: Construct, id: string, tags: {}, dependsOn: ITerraformDependable[]) {
     super(scope, id);
