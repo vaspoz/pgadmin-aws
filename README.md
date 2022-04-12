@@ -1,9 +1,24 @@
 # Run the cdktf templates
 
-Check with Prerequisites section, if everything in order, run the following script:
+## Initiate the build
+
+Check with Prerequisites section, if everything is in order, run the following script:
 ```
 ./startScript.sh
 ```
+then - select **Approve**
+
+As outputs you'll get next details:
+- ALB endpoint
+- pgAdmin username
+- pgAdmin password
+
+## Destroy the stack
+To destroy the stack, run the following command:
+```
+npm run destroy
+```
+
 
 # Prerequisites
 
@@ -15,6 +30,8 @@ In order to the build process, you have to have these tools installed:
 4. nodejs
 5. cdktf
 6. Docker
+
+*(I'll skip aws cli and git as a most obvious ones)*
 
 ## Install Terraform
 *For that example, I used Amazon Linux, but for other os, find instructions here*
