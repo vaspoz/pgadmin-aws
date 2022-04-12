@@ -15,10 +15,10 @@ export const defineProviders = (that: Construct) => {
         region: REGION,
         profile: PROFILE
       });
-      new NullProvider(that, "null");
-      new RandomProvider(that, "random");
-      new LocalProvider(that, "local");
-      new TlsProvider(that, "tls");
-      new TimeProvider(that, "time");
+      new NullProvider(that, "null");     // used to create a custom Resources, like docker image
+      new RandomProvider(that, "random"); // used to generate usernames and passwords
+      new LocalProvider(that, "local");   // used to create files needed for docker image
+      new TlsProvider(that, "tls");       // used to create a certificate
+      new TimeProvider(that, "time");     // used to introduce a sleep time at the end of the process to allow tagret groups get healthy state
       
 }

@@ -35,18 +35,22 @@ export class PostgresDB extends Resource {
   constructor(scope: Construct, id: string, vpc: Vpc, tags: {}) {
     super(scope, id);
 
+    // rds master username and password. Some sets of characters were excluded to avoid generation of incorrect values
     const dbUsername = new StringResource(this, "db-username", {
       length: 8,
       special: false,
       number: false
     });
     const dbPassword = new StringResource(this, "db-password", {
-      length: 12
+      length: 12,
+      special: false
     });
 
+    // Super unexpected port
     const dbPort = 6543;
     this.vpc = vpc;
 
+    // RDS construct backed by psql
     this.db = new Rds(this, "db", {
       identifier: `${id}-db`,
       engine: "postgres",
@@ -58,6 +62,8 @@ export class PostgresDB extends Resource {
       createDbOptionGroup: false,
       createDbParameterGroup: false,
       applyImmediately: true,
+      deleteAutomatedBackups: false,
+      skipFinalSnapshot: true,
       name: id,
       port: String(dbPort),
       username: dbUsername.result,

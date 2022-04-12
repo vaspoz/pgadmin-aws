@@ -42,14 +42,17 @@ import {
 export class PgadminAlb extends Resource {
 
   public readonly pgadminSecurityGroup: SecurityGroup;
+  public readonly alb: Lb;
 
   constructor(scope: Construct, id: string, vpc: Vpc, pgadminCluster: PgadminEcsCluster, tags: {}) {
     super(scope, id);
 
+    // Generate locally a private pem key
     const privateKey = new PrivateKey(this, 'pemfile', {
       algorithm: "RSA"
     });
 
+    // Generate self-signed (!) certificate
     const selfcert = new SelfSignedCert(this, 'selfcert', {
       keyAlgorithm: "RSA",
       privateKeyPem: privateKey.privateKeyPem,
@@ -62,6 +65,7 @@ export class PgadminAlb extends Resource {
       ]
     });
 
+    // Upload to ACM generated above self-signed cert
     const acmCert = new acm.AcmCertificate(this, 'acmcert', {
       privateKey: privateKey.privateKeyPem,
       certificateBody: selfcert.certPem
@@ -111,8 +115,8 @@ export class PgadminAlb extends Resource {
       }]
     });
 
-    const lb = new Lb(this, "lb", {
-      dependsOn: [],
+    // The ALB itself
+    this.alb = new Lb(this, "lb", {
       name: id,
       tags,
       // we want this to be our public load balancer so that users can access it
@@ -121,10 +125,11 @@ export class PgadminAlb extends Resource {
       securityGroups: [lbSecurityGroup.id]
     });
     // This is necessary because cdktf in not yet ready to properly map subnets, hence - custom override
-    lb.addOverride("subnets", vpc.publicSubnetsOutput);
+    this.alb.addOverride("subnets", vpc.publicSubnetsOutput);
 
+    // Create a listener on port 80 and redirect it to 443
     new LbListener(this, "lb-listener", {
-      loadBalancerArn: lb.arn,
+      loadBalancerArn: this.alb.arn,
       port: 80,
       protocol: "HTTP",
       tags,
@@ -137,8 +142,10 @@ export class PgadminAlb extends Resource {
         }
       }]
     });
+
+    // 443 listener with a default action 404. A rule for that listener will be specified below
     const lbl = new LbListener(this, "lb-listener-tls", {
-      loadBalancerArn: lb.arn,
+      loadBalancerArn: this.alb.arn,
       port: 443,
       protocol: "HTTPS",
       certificateArn: acmCert.arn,
@@ -175,7 +182,7 @@ export class PgadminAlb extends Resource {
       slowStart: 30
     });
 
-    // Makes the listener forward requests from subpath to the target group
+    // Makes the 443 listener forward requests from subpath to the target group
     new LbListenerRule(this, "simple-rule", {
       listenerArn: lbl.arn,
       priority: 100,
@@ -191,17 +198,8 @@ export class PgadminAlb extends Resource {
       }]
     });
 
-    // [Important] Sleep delay is needed here because as it is, the ALB will be ready BEFORE any task become HEALTHY. Leading to 502 Bad Gateway exception.
-    // To avoid that confusion, we're waiting for 2 minutes (after the EcsTask is in ready state), to allow nodes get to healthy state
-    const sleepDelay = new Sleep(this, "sleep-delay", {
-      dependsOn: [lbl],
-      createDuration: "2m"
-    });
-
-
-    // Ensure the task is running and wired to the target group, within the right security group
-    new EcsService(this, "service", {
-      dependsOn: [sleepDelay],
+    // Ensure the ECS task is running and wired to the target group, within the right security group
+    const ecsService = new EcsService(this, "service", {
       waitForSteadyState: true,
       tags,
       name: "pgadmin",
@@ -220,9 +218,17 @@ export class PgadminAlb extends Resource {
         targetGroupArn: targetGroup.arn,
       }]
     });
+    
+    // [Important] Sleep delay is needed here because as it is, the ALB will be ready BEFORE any task become HEALTHY. Leading to 502 Bad Gateway exception.
+    // To avoid that confusion, we're waiting for 2 minutes (after the EcsTask is in ready state), to allow nodes get to healthy state
+    new Sleep(this, "sleep-delay", {
+      dependsOn: [ecsService],
+      createDuration: "2m"
+    });
+
 
     new TerraformOutput(this, "AlbUrl", {
-      value: lb.dnsName
+      value: this.alb.dnsName
     });
   
   }

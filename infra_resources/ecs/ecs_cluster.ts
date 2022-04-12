@@ -117,7 +117,7 @@ export class PgadminEcsCluster extends Resource {
 
     // Creates a task that runs the docker container
     this.task = new EcsTaskDefinition(this, "pgadmin-task", {
-      dependsOn: [pgadminImage.image],
+      dependsOn: [pgadminImage.image],    // do not build the task untill the image is ready
       tags,
       cpu: "256",
       memory: "512",
@@ -127,7 +127,7 @@ export class PgadminEcsCluster extends Resource {
       taskRoleArn: taskRole.arn,
       containerDefinitions: JSON.stringify([{
         name: "pgadmin",
-        image: pgadminImage.imageTag,
+        image: pgadminImage.imageTag,     // image we built in ecr_image
         cpu: 256,
         memory: 512,
         environment: Object.entries(pgadminImage.containerEnv).map(([name, value]) => ({
