@@ -1,1 +1,0 @@
-{"Servers":{"1":{"Name":"postgresql","Group":"Servers","Host":"just another host","Port":5432,"MaintenanceDB":"postgres","Username":"vaspoz","SSLMode":"prefer","PassFile":"/pgpassfile"}}}
