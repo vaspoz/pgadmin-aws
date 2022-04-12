@@ -72,6 +72,8 @@ sudo systemctl start docker.service
 
 ## Initiate the build
 
+Note - main code entrypoint is **main.ts**
+
 Check with Prerequisites section, if everything is in order, run the following script:
 ```
 ./startScript.sh
