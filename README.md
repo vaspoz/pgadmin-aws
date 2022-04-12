@@ -1,24 +1,15 @@
-# Run the cdktf templates
+# Content
 
-## Initiate the build
+### - Architecture overview
+### - Prerequisites
+### - How to use cdktf stack
 
-Check with Prerequisites section, if everything is in order, run the following script:
-```
-./startScript.sh
-```
-then - select **Approve**
+# Architecture overview
 
-As outputs you'll get next details:
-- ALB endpoint
-- pgAdmin username
-- pgAdmin password
-
-## Destroy the stack
-To destroy the stack, run the following command:
-```
-npm run destroy
-```
-
+<img src="architecture.png" 
+        alt="Picture" 
+        width="600" 
+        style="display: block; margin: 0 auto" />
 
 # Prerequisites
 
@@ -74,4 +65,26 @@ sudo yum install docker -y
 ```
 ```
 sudo systemctl start docker.service
+```
+
+
+# How to use cdktf stack
+
+## Initiate the build
+
+Check with Prerequisites section, if everything is in order, run the following script:
+```
+./startScript.sh
+```
+then - select **Approve**
+
+As outputs you'll get next details:
+- ALB endpoint
+- pgAdmin username
+- pgAdmin password
+
+## Destroy the stack
+To destroy the stack, run the following command:
+```
+npm run destroy
 ```
