@@ -69,10 +69,10 @@ export class PgAdminImage extends Resource {
          */
         this.image.addOverride("provisioner.local-exec.command",
             `
-          docker logout &&
-          docker login -u ${auth.userName} -p ${auth.password} ${auth.proxyEndpoint} &&
-          docker build -t ${this.imageTag} ${path.resolve(__dirname)} &&
-          docker push ${this.imageTag}
+          sudo docker logout &&
+          sudo docker login -u ${auth.userName} -p ${auth.password} ${auth.proxyEndpoint} &&
+          sudo docker build -t ${this.imageTag} ${path.resolve(__dirname)} &&
+          sudo docker push ${this.imageTag}
         `
         );
 

@@ -24,7 +24,7 @@ npm run destroy
 
 In order to the build process, you have to have these tools installed:
 
-1. AWS CLI
+1. AWS CLI (with at least default profile configured)
 2. git
 3. Terraform
 4. nodejs
@@ -70,7 +70,7 @@ npm install --global cdktf-cli@latest
 ## Install Docker
 
 ```
-sudo yum install docker
+sudo yum install docker -y
 ```
 ```
 sudo systemctl start docker.service
