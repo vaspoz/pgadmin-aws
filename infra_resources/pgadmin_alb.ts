@@ -2,12 +2,11 @@ import {
   Construct
 } from "constructs";
 import {
-  Fn, TerraformOutput,
+  Fn,
+  TerraformOutput,
 } from "cdktf";
 import {
-  EcsCluster,
-  EcsService,
-  EcsTaskDefinition,
+  EcsService
 } from "@cdktf/provider-aws/lib/ecs";
 import {
   Lb,
@@ -24,26 +23,61 @@ import {
 import {
   Vpc
 } from "../.gen/modules/terraform-aws-modules/aws/vpc";
+import {
+  PgadminEcsCluster
+} from "./ecs/ecs_cluster";
+import {
+  PrivateKey,
+  SelfSignedCert,
+  SelfSignedCertSubject
+} from "@cdktf/provider-tls";
+import {
+  acm
+} from "../.gen/providers/aws";
+import {
+  Sleep
+} from "../.gen/providers/time";
 
 
 export class PgadminAlb extends Resource {
 
-  private readonly lb: Lb;
-  private readonly lbl: LbListener;
-  private readonly vpc: Vpc;
-  private readonly cluster: EcsCluster;
-  private readonly tags: {};
+  public readonly pgadminSecurityGroup: SecurityGroup;
 
-  constructor(scope: Construct, id: string, vpc: Vpc, cluster: EcsCluster, tags: {}) {
+  constructor(scope: Construct, id: string, vpc: Vpc, pgadminCluster: PgadminEcsCluster, tags: {}) {
     super(scope, id);
-    this.vpc = vpc;
-    this.cluster = cluster;
-    this.tags = tags;
 
+    const privateKey = new PrivateKey(this, 'pemfile', {
+      algorithm: "RSA"
+    });
+
+    const selfcert = new SelfSignedCert(this, 'selfcert', {
+      keyAlgorithm: "RSA",
+      privateKeyPem: privateKey.privateKeyPem,
+      allowedUses: ["key_encipherment", "digital_signature", "server_auth"],
+      validityPeriodHours: 12,
+      subject: [{
+          commonName: "example.com",
+          organization: "ACME Examples, Inc"
+        } as SelfSignedCertSubject
+      ]
+    });
+
+    const acmCert = new acm.AcmCertificate(this, 'acmcert', {
+      privateKey: privateKey.privateKeyPem,
+      certificateBody: selfcert.certPem
+    });
+
+    // ALB should allow all incoming connections on ports 80 and 443 (80 gonna be rerouted to 443)
     const lbSecurityGroup = new SecurityGroup(this, "lb-security-group", {
       vpcId: Fn.tostring(vpc.vpcIdOutput),
       tags,
       ingress: [{
+        protocol: "TCP",
+        fromPort: 443,
+        toPort: 443,
+        cidrBlocks: ["0.0.0.0/0"],
+        ipv6CidrBlocks: ["::/0"]
+      }, {
         protocol: "TCP",
         fromPort: 80,
         toPort: 80,
@@ -58,7 +92,27 @@ export class PgadminAlb extends Resource {
         ipv6CidrBlocks: ["::/0"]
       }]
     });
-    this.lb = new Lb(this, "lb", {
+    // That SG is used by pgadmin tasks - to only accept connections from ALB
+    this.pgadminSecurityGroup = new SecurityGroup(this, "service-security-group", {
+      vpcId: Fn.tostring(vpc.vpcIdOutput),
+      tags,
+      ingress: [{
+        protocol: "TCP",
+        fromPort: 80,
+        toPort: 80,
+        securityGroups: [lbSecurityGroup.id]
+      }],
+      egress: [{
+        fromPort: 0,
+        toPort: 0,
+        protocol: "-1",
+        cidrBlocks: ["0.0.0.0/0"],
+        ipv6CidrBlocks: ["::/0"],
+      }]
+    });
+
+    const lb = new Lb(this, "lb", {
+      dependsOn: [],
       name: id,
       tags,
       // we want this to be our public load balancer so that users can access it
@@ -66,17 +120,28 @@ export class PgadminAlb extends Resource {
       loadBalancerType: "application",
       securityGroups: [lbSecurityGroup.id]
     });
-    // This is necessary due to a shortcoming in our token system to be adressed in
-    this.lb.addOverride("subnets", vpc.publicSubnetsOutput);
+    // This is necessary because cdktf in not yet ready to properly map subnets, hence - custom override
+    lb.addOverride("subnets", vpc.publicSubnetsOutput);
 
-    new TerraformOutput(this, "AlbUrl", {
-      value: this.lb.dnsName
-    });
-
-    this.lbl = new LbListener(this, "lb-listener", {
-      loadBalancerArn: this.lb.arn,
+    new LbListener(this, "lb-listener", {
+      loadBalancerArn: lb.arn,
       port: 80,
       protocol: "HTTP",
+      tags,
+      defaultAction: [{
+        type: "redirect",
+        redirect: {
+          port: "443",
+          protocol: "HTTPS",
+          statusCode: "HTTP_301"
+        }
+      }]
+    });
+    const lbl = new LbListener(this, "lb-listener-tls", {
+      loadBalancerArn: lb.arn,
+      port: 443,
+      protocol: "HTTPS",
+      certificateArn: acmCert.arn,
       tags,
       defaultAction: [{
         type: "fixed-response",
@@ -87,18 +152,16 @@ export class PgadminAlb extends Resource {
         }
       }]
     });
-  }
 
-  public exposeService = (serviceName: string, task: EcsTaskDefinition, serviceSecurityGroup: SecurityGroup, path: string) => {
     // Define Load Balancer target group with a health check on /ready
     const targetGroup = new LbTargetGroup(this, "target-group", {
-      dependsOn: [this.lbl],
-      tags: this.tags,
-      name: `${serviceName}-target-group`,
+      dependsOn: [lbl],
+      tags,
+      name: "pgadmin-target-group",
       port: 80,
       protocol: "HTTP",
       targetType: "ip",
-      vpcId: Fn.tostring(this.vpc.vpcIdOutput),
+      vpcId: Fn.tostring(vpc.vpcIdOutput),
       stickiness: {
         type: "lb_cookie"
       },
@@ -114,40 +177,53 @@ export class PgadminAlb extends Resource {
 
     // Makes the listener forward requests from subpath to the target group
     new LbListenerRule(this, "simple-rule", {
-      listenerArn: this.lbl.arn,
+      listenerArn: lbl.arn,
       priority: 100,
-      tags: this.tags,
+      tags,
       action: [{
         type: "forward",
         targetGroupArn: targetGroup.arn,
       }],
       condition: [{
         pathPattern: {
-          values: [`${path}*`]
+          values: ["/*"]
         }
       }]
     });
 
+    // [Important] Sleep delay is needed here because as it is, the ALB will be ready BEFORE any task become HEALTHY. Leading to 502 Bad Gateway exception.
+    // To avoid that confusion, we're waiting for 2 minutes (after the EcsTask is in ready state), to allow nodes get to healthy state
+    const sleepDelay = new Sleep(this, "sleep-delay", {
+      dependsOn: [lbl],
+      createDuration: "2m"
+    });
+
+
     // Ensure the task is running and wired to the target group, within the right security group
     new EcsService(this, "service", {
-      dependsOn: [this.lbl],
+      dependsOn: [sleepDelay],
       waitForSteadyState: true,
-      tags: this.tags,
-      name: serviceName,
+      tags,
+      name: "pgadmin",
       launchType: "FARGATE",
-      cluster: this.cluster.id,
+      cluster: pgadminCluster.cluster.id,
       desiredCount: 3,
-      taskDefinition: task.arn,
+      taskDefinition: pgadminCluster.task.arn,
       networkConfiguration: {
-        subnets: Fn.tolist(this.vpc.privateSubnetsOutput),
+        subnets: Fn.tolist(vpc.privateSubnetsOutput),
         assignPublicIp: true,
-        securityGroups: [serviceSecurityGroup.id],
+        securityGroups: [this.pgadminSecurityGroup.id],
       },
       loadBalancer: [{
         containerPort: 80,
-        containerName: serviceName,
+        containerName: "pgadmin",
         targetGroupArn: targetGroup.arn,
       }]
     });
+
+    new TerraformOutput(this, "AlbUrl", {
+      value: lb.dnsName
+    });
+  
   }
 }

@@ -3,18 +3,14 @@ import {
 } from "constructs";
 import {
   App,
-  Fn,
   TerraformStack,
 } from "cdktf";
-import {
-  SecurityGroup
-} from "@cdktf/provider-aws/lib/vpc";
 import {
   PostgresDB
 } from "./infra_resources/psql_db";
 import {
   PgadminEcsCluster
-} from "./infra_resources/ecs_cluster";
+} from "./infra_resources/ecs/ecs_cluster";
 import {
   PgadminAlb
 } from "./infra_resources/pgadmin_alb";
@@ -29,47 +25,48 @@ const tags = {
   owner: "basilp"
 };
 
+/**
+ * PgadminStack defines the main stack in our application.
+ * inside, it configures next high level constructs:
+ *    1. Terraform Providers:
+ *      a. aws
+ *      b. null
+ *      c. random
+ *      d. local
+ *      e. tls
+ *    2. VPC:
+ *      a. 3 public subnets (for application load balancer)
+ *      b. 3 private subnets (for ECS tasks)
+ *      c. another 3 private subnets (for RDS backed by PostgreSQL)
+ *      d. Internet gateway
+ *      e. NAT
+ *      f. security groups, route tables etc..
+ *    3. Postgres DB (more description in a respective module)
+ *    4. ECS cluster (more description in a respective module)
+ *    5. ALB (more description in a respective module)
+ */
 class PgadminStack extends TerraformStack {
   constructor(scope: Construct, name: string) {
     super(scope, name);
 
+    // #1
     defineProviders(this);
 
+    // #2
     const vpc = new MainVpc(this, 'PsqlVpc', tags).vpc;
 
-    const serviceSecurityGroup = new SecurityGroup(this, "service-security-group", {
-      vpcId: Fn.tostring(vpc.vpcIdOutput),
-      tags,
-      ingress: [{
-        protocol: "TCP",
-        fromPort: 80,
-        toPort: 80,
-        cidrBlocks: ["0.0.0.0/0"]
-      }],
-      egress: [{
-        fromPort: 0,
-        toPort: 0,
-        protocol: "-1",
-        cidrBlocks: ["0.0.0.0/0"],
-        ipv6CidrBlocks: ["::/0"],
-      }]
-    });
+    // #3
+    const db = new PostgresDB(this, "psql", vpc, tags);
 
-    // First, create PostgresDB
-    const db = new PostgresDB(this, "psql", vpc, serviceSecurityGroup, tags);
+    // #4
+    const pgadminCluster = new PgadminEcsCluster(this, "cluster", tags, db.fileList);
 
-    const cluster = new PgadminEcsCluster(this, "cluster", tags, db.fileList);
+    // #5
+    const loadBalancer = new PgadminAlb(this, "loadbalancer", vpc, pgadminCluster, tags);
 
-    const loadBalancer = new PgadminAlb(this, "loadbalancer", vpc, cluster.cluster, tags);
-
-    const task = cluster.runDockerImage("pgadmin", {
-      PGADMIN_DEFAULT_EMAIL: "vaspoz@mail.ru",
-      PGADMIN_DEFAULT_PASSWORD: "admin",
-      PGADMIN_CONFIG_ENHANCED_COOKIE_PROTECTION: "False"
-    });
-
-    loadBalancer.exposeService("pgadmin", task, serviceSecurityGroup, "/");
-
+    // Last - setup the DB security group to accept connections only from ECS tasks
+    db.setSecurityGroup(loadBalancer.pgadminSecurityGroup);
+    
   }
 }
 

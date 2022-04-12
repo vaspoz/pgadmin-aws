@@ -17,7 +17,7 @@ import {
   Rds
 } from "../.gen/modules/terraform-aws-modules/aws/rds";
 import {
-  Password
+  StringResource
 } from "../.gen/providers/random";
 import {
   File
@@ -28,60 +28,49 @@ import path = require("path");
 export class PostgresDB extends Resource {
 
   public db: Rds;
-  public fileList: File[] = [];
+  public fileList: File[] = [];     // We have to expose those files to allow external contstructs (Image, in that case, see exs_cluster.ts) to wait until they actually persisted in filesystem
 
-  constructor(scope: Construct, id: string, vpc: Vpc, serviceSecurityGroup: SecurityGroup, tags: {}) {
+  private readonly vpc: Vpc;
+
+  constructor(scope: Construct, id: string, vpc: Vpc, tags: {}) {
     super(scope, id);
 
-    new Password(this, "db-password", {
-      length: 16,
+    const dbUsername = new StringResource(this, "db-username", {
+      length: 8,
       special: false,
+      number: false
+    });
+    const dbPassword = new StringResource(this, "db-password", {
+      length: 12
     });
 
-    const dbPort = 5432;
-
-    const dbSecurityGroup = new SecurityGroup(this, "db-security-group", {
-      vpcId: Fn.tostring(vpc.vpcIdOutput),
-      ingress: [{
-        fromPort: dbPort,
-        toPort: dbPort,
-        protocol: "TCP",
-        securityGroups: [serviceSecurityGroup.id],
-      }],
-      tags
-    });
+    const dbPort = 6543;
+    this.vpc = vpc;
 
     this.db = new Rds(this, "db", {
       identifier: `${id}-db`,
-
       engine: "postgres",
       engineVersion: "14.1",
       family: "postgres14",
       majorEngineVersion: "14",
       instanceClass: "db.t3.micro",
       allocatedStorage: "5",
-
       createDbOptionGroup: false,
       createDbParameterGroup: false,
       applyImmediately: true,
-
       name: id,
       port: String(dbPort),
-      username: 'vaspoz',
-      password: 'vaspozmailru',
-
+      username: dbUsername.result,
+      password: dbPassword.result,
       maintenanceWindow: "Mon:00:00-Mon:03:00",
       backupWindow: "03:00-06:00",
-
-      // This is necessary due to a shortcoming in our token system to be adressed in
-      // https://github.com/hashicorp/terraform-cdk/issues/651
       subnetIds: vpc.databaseSubnetsOutput as unknown as any,
-      vpcSecurityGroupIds: [dbSecurityGroup.id],
       tags
     });
 
+    // This file will help PgAdmin to automatically setup the server configuration
     const serversFile = new File(this, "psql-servers", {
-      filename: path.resolve(__dirname, "./servers.json"),
+      filename: path.resolve(__dirname, "./ecs/servers.json"),
       content: JSON.stringify({
         "Servers": {
           "1": {
@@ -97,14 +86,32 @@ export class PostgresDB extends Resource {
         }
       })
     });
+
+    // This file will setup credentials for above mentioned connection. Both files will be used during docker build stage (see ecs_cluster)
     const pgpassFile = new File(this, "psql-passfile", {
-      filename: path.resolve(__dirname, "./pgpassfile"),
+      filename: path.resolve(__dirname, "./ecs/pgpassfile"),
       content: `${this.db.dbInstanceAddressOutput}:${this.db.port}:postgres:${this.db.username}:${this.db.password}`,
-      // content: `*:*:*:${this.db.username}:${this.db.password}`,
       filePermission: "600"
     });
 
     this.fileList.push(serversFile, pgpassFile);
+
+  }
+
+  // We need an extra function in this class, to make use of it on a later stages ,
+  // because the db secutiry group should allow connections only from ECS cluster, which will be defined later
+  public setSecurityGroup = (ingressSecGroup: SecurityGroup) => {
+    const dbSecurityGroup = new SecurityGroup(this, "db-security-group", {
+      vpcId: Fn.tostring(this.vpc.vpcIdOutput),
+      ingress: [{
+        fromPort: parseInt(this.db.port),
+        toPort: parseInt(this.db.port),
+        protocol: "TCP",
+        securityGroups: [ingressSecGroup.id],
+      }]
+    });
+
+    this.db.vpcSecurityGroupIds = [dbSecurityGroup.id];
 
   }
 }
