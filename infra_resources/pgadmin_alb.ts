@@ -223,7 +223,7 @@ export class PgadminAlb extends Resource {
     // To avoid that confusion, we're waiting for 2 minutes (after the EcsTask is in ready state), to allow nodes get to healthy state
     new Sleep(this, "sleep-delay", {
       dependsOn: [ecsService],
-      createDuration: "2m"
+      createDuration: "3m"
     });
 
 
