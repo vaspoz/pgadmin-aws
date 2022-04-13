@@ -67,6 +67,7 @@ sudo yum install docker -y
 sudo systemctl start docker.service
 ```
 
+**Note:** Make sure you can run `sudo docker <cdm>` without request for sudo password!
 
 # How to use cdktf stack
 
