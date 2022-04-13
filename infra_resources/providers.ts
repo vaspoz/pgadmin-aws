@@ -9,6 +9,9 @@ import { TimeProvider } from "../.gen/providers/time";
 const REGION = process.env["REGION"] || "eu-central-1";
 const PROFILE = process.env["AWSPROFILE"] || "default";
 
+console.log(`#  Terraform is using [${REGION}] region`);
+console.log(`#  Terraform is using [${PROFILE}] AWS CLI profile`);
+
 export const defineProviders = (that: Construct) => {
 
     new AwsProvider(that, "aws", {
