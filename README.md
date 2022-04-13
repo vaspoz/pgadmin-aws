@@ -87,7 +87,7 @@ As outputs you'll get next details:
 - pgAdmin password
 
 ## Destroy the stack
-To destroy the stack, run the following command:
+To destroy the stack, run the following script:
 ```
-npm run destroy
+./destroyScript.sh
 ```
